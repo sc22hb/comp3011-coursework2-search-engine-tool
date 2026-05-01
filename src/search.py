@@ -7,23 +7,34 @@ import json
 import math
 from pathlib import Path
 
-from indexer import InvertedIndex, PostingEntry, tokenise_text
+from indexer import InvertedIndex, PostingEntry, filter_stop_words, tokenise_text
 
 DEFAULT_INDEX_PATH = Path("data/index.json")
+
+SNIPPET_WINDOW = 8
 
 
 class SearchEngine:
     """Provides search operations over a loaded inverted index."""
 
-    def __init__(self, index: InvertedIndex | None = None) -> None:
+    def __init__(
+        self,
+        index: InvertedIndex | None = None,
+        page_texts: dict[str, str] | None = None,
+    ) -> None:
         self.index = index or {}
+        self.page_texts: dict[str, str] = page_texts or {}
 
     def save(self, path: str | Path = DEFAULT_INDEX_PATH) -> Path:
-        """Persist the current index to disk."""
+        """Persist the current index and page texts to disk."""
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "index": self.index,
+            "page_texts": self.page_texts,
+        }
         output_path.write_text(
-            json.dumps(self.index, indent=2, sort_keys=True),
+            json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         return output_path
@@ -33,16 +44,20 @@ class SearchEngine:
         """Load a persisted index from disk."""
         input_path = Path(path)
         try:
-            raw_index = json.loads(input_path.read_text(encoding="utf-8"))
+            raw = json.loads(input_path.read_text(encoding="utf-8"))
         except FileNotFoundError as error:
             raise FileNotFoundError(f"Index file not found: {input_path}") from error
         except json.JSONDecodeError as error:
             raise ValueError(f"Index file is not valid JSON: {input_path}") from error
 
-        if not isinstance(raw_index, dict):
-            raise ValueError("Index file does not contain a valid inverted index.")
+        # Support both the new wrapped format and the legacy bare-index format.
+        if isinstance(raw, dict) and "index" in raw and "page_texts" in raw:
+            return cls(index=raw["index"], page_texts=raw["page_texts"])
 
-        return cls(index=raw_index)
+        if isinstance(raw, dict):
+            return cls(index=raw)
+
+        raise ValueError("Index file does not contain a valid inverted index.")
 
     def print_word(self, word: str) -> dict[str, PostingEntry]:
         """Return the inverted-index entry for one word."""
@@ -112,7 +127,62 @@ class SearchEngine:
 
         return " ".join(suggested_components)
 
+    def snippet(self, url: str, query_terms: list[str]) -> str | None:
+        """Return a short text excerpt from *url* highlighting the query match.
+
+        The excerpt centres on the first matching position and extends
+        *SNIPPET_WINDOW* tokens either side so the user can see context.
+        Returns ``None`` when no page text is stored for the URL.
+        """
+        page_text = self.page_texts.get(url)
+        if page_text is None:
+            return None
+
+        tokens = filter_stop_words(tokenise_text(page_text))
+        components = self._parse_query_components(query_terms)
+        if not components or not tokens:
+            return None
+
+        # Find the earliest matching position across all query components.
+        best_position: int | None = None
+        for component in components:
+            if len(component) == 1:
+                postings = self.index.get(component[0], {})
+                entry = postings.get(url)
+                if entry and entry["positions"]:
+                    pos = entry["positions"][0]
+                    if best_position is None or pos < best_position:
+                        best_position = pos
+            else:
+                for token in component:
+                    postings = self.index.get(token, {})
+                    entry = postings.get(url)
+                    if entry and entry["positions"]:
+                        pos = entry["positions"][0]
+                        if best_position is None or pos < best_position:
+                            best_position = pos
+
+        if best_position is None:
+            return None
+
+        start = max(0, best_position - SNIPPET_WINDOW)
+        end = min(len(tokens), best_position + SNIPPET_WINDOW + 1)
+        excerpt = " ".join(tokens[start:end])
+        if start > 0:
+            excerpt = "..." + excerpt
+        if end < len(tokens):
+            excerpt = excerpt + "..."
+
+        return excerpt
+
     def _parse_query_components(self, query_terms: list[str]) -> list[list[str]]:
+        """Tokenise each query term into a list of token lists (components).
+
+        Each component is a list of tokens produced from one user-supplied
+        term.  A quoted multi-word term like ``"good friends"`` becomes a
+        single component with multiple tokens so that phrase matching can be
+        applied.
+        """
         components: list[list[str]] = []
 
         for term in query_terms:
@@ -123,6 +193,11 @@ class SearchEngine:
         return components
 
     def _matching_pages_for_component(self, component: list[str]) -> set[str]:
+        """Return URLs that contain every token in *component*.
+
+        For multi-token components the tokens must also appear as a
+        consecutive phrase (verified via positional postings).
+        """
         if len(component) == 1:
             return set(self.index.get(component[0], {}))
 
@@ -146,6 +221,7 @@ class SearchEngine:
         return matching_pages
 
     def _phrase_occurrences(self, component: list[str], url: str) -> int:
+        """Count consecutive-position phrase matches for *component* in *url*."""
         if len(component) == 1:
             return 1 if url in self.index.get(component[0], {}) else 0
 
@@ -169,6 +245,13 @@ class SearchEngine:
         return occurrences
 
     def _query_score(self, components: list[list[str]], url: str) -> float:
+        """Compute a relevance score combining TF-IDF and phrase bonuses.
+
+        The score for each component sums the TF-IDF weight of its unique
+        tokens.  Multi-token components receive an additional bonus
+        proportional to the number of exact phrase occurrences so that
+        phrase matches are ranked above simple AND matches.
+        """
         score = 0.0
 
         for component in components:
@@ -181,6 +264,13 @@ class SearchEngine:
         return score
 
     def _term_tfidf(self, term: str, url: str) -> float:
+        """Return the TF-IDF weight for *term* in *url*.
+
+        Uses log-scaled term frequency and smoothed inverse document
+        frequency, following the standard weighting scheme described in
+        Manning, Raghavan & Schütze, *Introduction to Information
+        Retrieval* (Cambridge University Press, 2008), Chapter 6.
+        """
         postings = self.index.get(term, {})
         posting = postings.get(url)
         if posting is None:
@@ -193,6 +283,7 @@ class SearchEngine:
         return (1 + math.log(term_frequency)) * inverse_document_frequency
 
     def _document_count(self) -> int:
+        """Return the total number of distinct documents in the index."""
         documents: set[str] = set()
         for postings in self.index.values():
             documents.update(postings)
