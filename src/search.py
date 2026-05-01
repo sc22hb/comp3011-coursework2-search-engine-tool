@@ -138,29 +138,16 @@ class SearchEngine:
         if page_text is None:
             return None
 
-        tokens = filter_stop_words(tokenise_text(page_text))
+        tokens = tokenise_text(page_text)
         components = self._parse_query_components(query_terms)
         if not components or not tokens:
             return None
 
-        # Find the earliest matching position across all query components.
         best_position: int | None = None
         for component in components:
-            if len(component) == 1:
-                postings = self.index.get(component[0], {})
-                entry = postings.get(url)
-                if entry and entry["positions"]:
-                    pos = entry["positions"][0]
-                    if best_position is None or pos < best_position:
-                        best_position = pos
-            else:
-                for token in component:
-                    postings = self.index.get(token, {})
-                    entry = postings.get(url)
-                    if entry and entry["positions"]:
-                        pos = entry["positions"][0]
-                        if best_position is None or pos < best_position:
-                            best_position = pos
+            position = self._first_match_position(component, url)
+            if position is not None and (best_position is None or position < best_position):
+                best_position = position
 
         if best_position is None:
             return None
@@ -256,12 +243,25 @@ class SearchEngine:
 
         for component in components:
             unique_tokens = list(dict.fromkeys(component))
-            component_score = sum(self._term_tfidf(token, url) for token in unique_tokens)
+            ranking_tokens = self._ranking_tokens(unique_tokens)
+            component_score = sum(self._term_tfidf(token, url) for token in ranking_tokens)
             if len(component) > 1:
                 component_score += 0.5 * self._phrase_occurrences(component, url)
             score += component_score
 
         return score
+
+    def _first_match_position(self, component: list[str], url: str) -> int | None:
+        """Return the first start position where *component* matches in *url*."""
+        if len(component) == 1:
+            postings = self.index.get(component[0], {})
+            entry = postings.get(url)
+            if entry and entry["positions"]:
+                return entry["positions"][0]
+            return None
+
+        candidate_positions = self._phrase_start_positions(component, url)
+        return min(candidate_positions) if candidate_positions else None
 
     def _term_tfidf(self, term: str, url: str) -> float:
         """Return the TF-IDF weight for *term* in *url*.
@@ -289,3 +289,33 @@ class SearchEngine:
             documents.update(postings)
 
         return len(documents)
+
+    def _phrase_start_positions(self, component: list[str], url: str) -> set[int]:
+        """Return all start positions where *component* appears consecutively."""
+        if len(component) == 1:
+            postings = self.index.get(component[0], {})
+            entry = postings.get(url)
+            return set(entry["positions"]) if entry else set()
+
+        position_sets = [
+            set(self.index[token][url]["positions"])
+            for token in component
+            if url in self.index.get(token, {})
+        ]
+
+        if len(position_sets) != len(component):
+            return set()
+
+        return {
+            start_position
+            for start_position in position_sets[0]
+            if all(
+                (start_position + offset) in position_sets[offset]
+                for offset in range(1, len(component))
+            )
+        }
+
+    def _ranking_tokens(self, unique_tokens: list[str]) -> list[str]:
+        """Return tokens to use for ranking while preserving full query matching."""
+        filtered = filter_stop_words(unique_tokens)
+        return filtered or unique_tokens

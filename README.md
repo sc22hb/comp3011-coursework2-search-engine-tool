@@ -8,7 +8,6 @@ The tool:
 - crawls `https://quotes.toscrape.com/`
 - respects a 6-second politeness window between requests
 - builds an inverted index of words found in crawled pages
-- filters common English stop words to reduce noise and improve ranking precision
 - stores per-page word statistics including frequency and positions
 - saves and loads the compiled index from disk
 - supports command-line search operations for printing one term and finding multi-word queries
@@ -22,7 +21,7 @@ The tool:
 - Polite breadth-first crawl of the target quote pages only
 - Canonical URL handling so the home page and `/page/1/` are not indexed twice
 - Case-insensitive tokenisation with apostrophe-aware word handling
-- Stop word filtering using a standard English stop list based on classic IR practice
+- Stop word de-emphasis at ranking time using a standard English stop list
 - Positional inverted index with per-page frequency and token positions
 - Persistent compiled index stored in `data/index.json` (index and page texts)
 - Exact phrase search built on positional postings
@@ -150,7 +149,7 @@ Responsible for:
 Responsible for:
 - tokenising page text
 - normalising words to lowercase
-- filtering stop words from the token stream before indexing
+- preserving all lowercased tokens in the positional index
 - building the inverted index
 - storing per-page frequency and token positions
 
@@ -162,7 +161,7 @@ Responsible for:
 - resolving AND queries for `find`
 - evaluating exact phrase matches through positional postings
 - ranking matches with TF-IDF scoring
-- generating context snippets centred on the first match position
+- generating context snippets centred on the first true match position
 - suggesting close query alternatives
 
 ### `src/main.py`
@@ -188,6 +187,7 @@ The current ranking function combines:
 - log-scaled term frequency
 - inverse document frequency
 - a small bonus for exact phrase matches
+- de-emphasis of stop words during ranking while keeping them in the index for correctness
 
 ## Complexity discussion
 

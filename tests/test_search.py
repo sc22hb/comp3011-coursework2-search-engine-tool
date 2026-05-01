@@ -149,6 +149,34 @@ def test_search_engine_find_supports_exact_phrase_queries() -> None:
     assert engine.find(["good friends"]) == ["https://quotes.toscrape.com/"]
 
 
+def test_search_engine_phrase_query_does_not_match_across_stop_words() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+            "and": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                },
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [2],
+                },
+            },
+        },
+        page_texts={"https://quotes.toscrape.com/": "good and friends"},
+    )
+
+    assert engine.find(["good friends"]) == []
+
+
 def test_search_engine_find_returns_empty_for_empty_query() -> None:
     engine = SearchEngine({"good": {}})
     assert engine.find([]) == []
@@ -592,6 +620,33 @@ def test_search_engine_snippet_returns_context_around_match() -> None:
     assert "life" in result
 
 
+def test_search_engine_snippet_uses_true_phrase_start_position() -> None:
+    index = {
+        "good": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 2,
+                "positions": [0, 10],
+            }
+        },
+        "friends": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 1,
+                "positions": [11],
+            }
+        },
+    }
+    page_texts = {
+        "https://quotes.toscrape.com/": "good ideas matter every day for thoughtful readers and curious minds good friends stay close",
+    }
+    engine = SearchEngine(index, page_texts=page_texts)
+
+    result = engine.snippet("https://quotes.toscrape.com/", ["good friends"])
+
+    assert result is not None
+    assert "good friends stay close" in result
+    assert "good ideas matter" not in result
+
+
 def test_search_engine_snippet_returns_none_without_page_texts() -> None:
     engine = SearchEngine(
         {"good": {"u": {"frequency": 1, "positions": [0]}}}
@@ -807,9 +862,9 @@ def test_committed_compiled_index_supports_real_queries() -> None:
     assert len(life_results) == 10
     assert set(life_results) == set(pages)
 
-    # Stop words should not be in the index
+    # Common stop words remain searchable because the positional index is complete.
     for stop_word in ("the", "is", "a", "and", "of"):
-        assert stop_word not in engine.index, f"Stop word '{stop_word}' should be filtered"
+        assert stop_word in engine.index
 
     suggestion = engine.suggest_query(["godo", "frends"])
     assert suggestion is not None

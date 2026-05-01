@@ -39,7 +39,6 @@ def test_build_index_tracks_frequency_and_positions_per_page() -> None:
 
     index = Indexer().build_index(pages)
 
-    # "and" is a stop word so positions shift: good(0) habits(1) good(2) work(3)
     assert index["good"] == {
         "https://quotes.toscrape.com/": {
             "frequency": 2,
@@ -47,7 +46,7 @@ def test_build_index_tracks_frequency_and_positions_per_page() -> None:
         },
         "https://quotes.toscrape.com/page/2/": {
             "frequency": 2,
-            "positions": [0, 2],
+            "positions": [0, 3],
         },
     }
     assert index["friends"] == {
@@ -56,7 +55,12 @@ def test_build_index_tracks_frequency_and_positions_per_page() -> None:
             "positions": [1],
         }
     }
-    assert "and" not in index
+    assert index["and"] == {
+        "https://quotes.toscrape.com/page/2/": {
+            "frequency": 1,
+            "positions": [2],
+        }
+    }
 
 
 def test_build_index_ignores_empty_page_text() -> None:
@@ -162,3 +166,19 @@ def test_build_index_integration_multiple_pages() -> None:
         "https://quotes.toscrape.com/page/2/",
         "https://quotes.toscrape.com/page/3/",
     }
+
+
+def test_build_index_preserves_phrase_positions_with_stop_words() -> None:
+    pages = [
+        PageData(
+            url="https://quotes.toscrape.com/",
+            title="Page 1",
+            text="good and friends",
+        )
+    ]
+
+    index = Indexer().build_index(pages)
+
+    assert index["good"]["https://quotes.toscrape.com/"]["positions"] == [0]
+    assert index["and"]["https://quotes.toscrape.com/"]["positions"] == [1]
+    assert index["friends"]["https://quotes.toscrape.com/"]["positions"] == [2]

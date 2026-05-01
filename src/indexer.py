@@ -10,9 +10,9 @@ from crawler import PageData
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)*")
 
-# Standard English stop words excluded from the index to reduce noise and
-# improve ranking precision.  The list is based on the classic information-
-# retrieval stop list used by systems such as Lucene and NLTK.
+# Standard English stop words used for ranking-time de-emphasis.  The
+# inverted index itself remains complete so that all word occurrences and
+# original positional offsets are preserved.
 STOP_WORDS: frozenset[str] = frozenset({
     "a", "an", "the", "and", "or", "but", "if", "in", "on", "at", "to",
     "for", "of", "with", "by", "from", "is", "it", "its", "this", "that",
@@ -58,15 +58,14 @@ class Indexer:
     def build_index(self, pages: Iterable[PageData]) -> InvertedIndex:
         """Return an inverted index for the supplied pages.
 
-        Tokens are extracted, lowercased, and filtered through a stop-word
-        list.  Each surviving token is recorded with its frequency and
-        positional offsets within the page so that phrase queries can be
-        resolved later.
+        Tokens are extracted and lowercased. Each token is recorded with its
+        frequency and positional offsets within the original page token stream
+        so that phrase queries can be resolved against the source text exactly.
         """
         index: InvertedIndex = {}
 
         for page in pages:
-            tokens = filter_stop_words(tokenise_text(page.text))
+            tokens = tokenise_text(page.text)
             for position, token in enumerate(tokens):
                 postings = index.setdefault(token, {})
                 page_entry = postings.setdefault(
