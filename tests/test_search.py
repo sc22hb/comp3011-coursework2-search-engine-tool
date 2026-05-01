@@ -532,3 +532,24 @@ def test_main_interactive_loop_returns_system_exit_code(monkeypatch) -> None:
     monkeypatch.setattr(main_module, "SearchShell", lambda: FakeShell())
 
     assert main([]) == 7
+
+
+def test_committed_compiled_index_supports_real_queries() -> None:
+    index_path = Path(__file__).resolve().parents[1] / "data" / "index.json"
+    engine = SearchEngine.load(index_path)
+
+    pages = sorted({url for postings in engine.index.values() for url in postings})
+
+    assert len(engine.index) == 858
+    assert len(pages) == 10
+    assert pages[0] == "https://quotes.toscrape.com/"
+    assert pages[-1] == "https://quotes.toscrape.com/page/9/"
+
+    life_results = engine.find(["life"])
+    assert len(life_results) == 10
+    assert set(life_results) == set(pages)
+    assert life_results[0] == "https://quotes.toscrape.com/page/2/"
+    assert engine.find(["good friends"]) == ["https://quotes.toscrape.com/page/2/"]
+    suggestion = engine.suggest_query(["godo", "frends"])
+    assert suggestion is not None
+    assert suggestion.endswith("friends")
