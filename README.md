@@ -8,11 +8,13 @@ The tool:
 - crawls `https://quotes.toscrape.com/`
 - respects a 6-second politeness window between requests
 - builds an inverted index of words found in crawled pages
+- filters common English stop words to reduce noise and improve ranking precision
 - stores per-page word statistics including frequency and positions
 - saves and loads the compiled index from disk
 - supports command-line search operations for printing one term and finding multi-word queries
-- ranks matches using TF-IDF-inspired scoring
+- ranks matches using TF-IDF scoring
 - supports positional phrase search such as `find "good friends"`
+- displays context snippets alongside search results
 - suggests corrected query terms for close misspellings
 
 ## Feature summary
@@ -20,9 +22,11 @@ The tool:
 - Polite breadth-first crawl of the target quote pages only
 - Canonical URL handling so the home page and `/page/1/` are not indexed twice
 - Case-insensitive tokenisation with apostrophe-aware word handling
+- Stop word filtering using a standard English stop list based on classic IR practice
 - Positional inverted index with per-page frequency and token positions
-- Persistent compiled index stored in `data/index.json`
+- Persistent compiled index stored in `data/index.json` (index and page texts)
 - Exact phrase search built on positional postings
+- Context snippets showing matched text around query hits
 - Query suggestion support for close misspellings
 - Automated test workflow through GitHub Actions
 - Benchmark script for representative search queries
@@ -146,17 +150,19 @@ Responsible for:
 Responsible for:
 - tokenising page text
 - normalising words to lowercase
+- filtering stop words from the token stream before indexing
 - building the inverted index
 - storing per-page frequency and token positions
 
 ### `src/search.py`
 
 Responsible for:
-- loading and saving the compiled index
+- loading and saving the compiled index (including page texts for snippets)
 - returning postings for `print`
 - resolving AND queries for `find`
 - evaluating exact phrase matches through positional postings
-- ranking matches with TF-IDF-inspired scoring
+- ranking matches with TF-IDF scoring
+- generating context snippets centred on the first match position
 - suggesting close query alternatives
 
 ### `src/main.py`
@@ -268,3 +274,12 @@ The repository was developed incrementally using:
 - The project is intentionally focused on the target coursework website rather than arbitrary web domains.
 - The ranking model is lightweight and suitable for the coursework scale rather than a production web-scale engine.
 - Query suggestions are close-match based, not dictionary- or language-model based.
+- No stemming or lemmatisation is applied; words are matched in their exact surface form after lowercasing.
+
+## References
+
+- Manning, C. D., Raghavan, P. & Schütze, H. (2008). *Introduction to Information Retrieval*. Cambridge University Press. Chapters 1–6 informed the inverted index design and TF-IDF weighting scheme.
+- Python Requests library documentation: <https://docs.python-requests.org/en/latest/>
+- Beautiful Soup 4 documentation: <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>
+- NLTK stop word list (reference for the stop word set used): <https://www.nltk.org/nltk_data/>
+- Quotes to Scrape (target website): <https://quotes.toscrape.com/>
