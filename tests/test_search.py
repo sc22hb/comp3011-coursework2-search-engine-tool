@@ -5,7 +5,8 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from crawler import PageData
-from main import SearchShell, main
+import main as main_module
+from main import SearchShell, build_index_with_defaults, main
 from search import SearchEngine
 
 
@@ -174,6 +175,51 @@ def test_search_engine_suggests_close_query_terms() -> None:
     assert engine.suggest_query(["godo", "frends"]) == "good friends"
 
 
+def test_search_engine_returns_no_suggestion_for_empty_query_terms() -> None:
+    engine = SearchEngine({"good": {}})
+    assert engine.suggest_query([]) is None
+
+
+def test_search_engine_returns_no_suggestion_when_query_is_already_valid() -> None:
+    engine = SearchEngine({"good": {"https://quotes.toscrape.com/": {"frequency": 1, "positions": [0]}}})
+    assert engine.suggest_query(["good"]) is None
+
+
+def test_search_engine_returns_no_suggestion_when_no_close_match_exists() -> None:
+    engine = SearchEngine({"good": {"https://quotes.toscrape.com/": {"frequency": 1, "positions": [0]}}})
+    assert engine.suggest_query(["xyzabc"]) is None
+
+
+def test_search_engine_phrase_occurrences_supports_single_term_queries() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                }
+            }
+        }
+    )
+
+    assert engine._phrase_occurrences(["good"], "https://quotes.toscrape.com/") == 1
+
+
+def test_search_engine_term_tfidf_returns_zero_for_missing_page() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                }
+            }
+        }
+    )
+
+    assert engine._term_tfidf("good", "https://quotes.toscrape.com/page/2/") == 0.0
+
+
 class StubCrawler:
     def __init__(self, pages: list[PageData]) -> None:
         self.pages = pages
@@ -327,6 +373,25 @@ def test_search_shell_find_returns_query_suggestion(tmp_path: Path) -> None:
     assert output == "No matching pages found.\nDid you mean: good friends?"
 
 
+def test_search_shell_find_returns_plain_no_results_without_suggestion(tmp_path: Path) -> None:
+    path = tmp_path / "index.json"
+    SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 2,
+                    "positions": [0, 2],
+                }
+            }
+        }
+    ).save(path)
+    shell = SearchShell(index_path=path)
+
+    output = shell.run_command("find", ["xyzabc"])
+
+    assert output == "No matching pages found."
+
+
 def test_search_shell_find_requires_query_terms(tmp_path: Path) -> None:
     shell = SearchShell(index_path=tmp_path / "index.json")
 
@@ -345,3 +410,125 @@ def test_main_returns_error_code_for_invalid_command(capsys) -> None:
 
     assert result == 1
     assert "Unknown command: unknown" in captured.err
+
+
+def test_search_shell_print_requires_exactly_one_word(tmp_path: Path) -> None:
+    shell = SearchShell(index_path=tmp_path / "index.json")
+
+    try:
+        shell.run_command("print", ["good", "friends"])
+    except ValueError as error:
+        assert "exactly one word" in str(error)
+    else:
+        assert False, "Expected ValueError for a multi-word print command."
+
+
+def test_search_shell_run_command_line_rejects_empty_input(tmp_path: Path) -> None:
+    shell = SearchShell(index_path=tmp_path / "index.json")
+
+    try:
+        shell.run_command_line("   ")
+    except ValueError as error:
+        assert "No command provided" in str(error)
+    else:
+        assert False, "Expected ValueError for an empty command line."
+
+
+def test_search_shell_run_command_supports_quit(tmp_path: Path) -> None:
+    shell = SearchShell(index_path=tmp_path / "index.json")
+
+    try:
+        shell.run_command("quit", [])
+    except SystemExit as error:
+        assert error.code == 0
+    else:
+        assert False, "Expected SystemExit for quit."
+
+
+def test_build_index_with_defaults_uses_default_components(monkeypatch) -> None:
+    pages = [PageData(url="u", title="t", text="Good friends")]
+    expected_index = {"good": {"u": {"frequency": 1, "positions": [0]}}}
+
+    class FakeCrawler:
+        def crawl(self) -> list[PageData]:
+            return pages
+
+    class FakeIndexer:
+        def build_index(self, crawled_pages: list[PageData]) -> dict:
+            assert crawled_pages == pages
+            return expected_index
+
+    monkeypatch.setattr(main_module, "Crawler", FakeCrawler)
+    monkeypatch.setattr(main_module, "Indexer", FakeIndexer)
+
+    assert build_index_with_defaults() == expected_index
+
+
+def test_main_returns_zero_for_successful_direct_command(monkeypatch, capsys) -> None:
+    class FakeShell:
+        def run_command(self, command: str, arguments: list[str]) -> str:
+            assert command == "load"
+            assert arguments == []
+            return "loaded"
+
+    monkeypatch.setattr(main_module, "SearchShell", lambda: FakeShell())
+
+    result = main(["load"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert captured.out.strip() == "loaded"
+
+
+def test_main_returns_system_exit_code_for_direct_quit(monkeypatch) -> None:
+    class FakeShell:
+        def run_command(self, command: str, arguments: list[str]) -> str:
+            raise SystemExit(3)
+
+    monkeypatch.setattr(main_module, "SearchShell", lambda: FakeShell())
+
+    assert main(["quit"]) == 3
+
+
+def test_main_returns_zero_on_immediate_eof(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(EOFError()))
+
+    assert main([]) == 0
+
+
+def test_main_interactive_loop_continues_after_value_error(monkeypatch, capsys) -> None:
+    commands = iter(["   ", "bad", "load"])
+
+    def fake_input(prompt: str) -> str:
+        try:
+            return next(commands)
+        except StopIteration as error:
+            raise EOFError() from error
+
+    class FakeShell:
+        def run_command_line(self, command_line: str) -> str:
+            if command_line == "bad":
+                raise ValueError("bad command")
+            return "loaded"
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(main_module, "SearchShell", lambda: FakeShell())
+
+    result = main([])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "bad command" in captured.err
+    assert "loaded" in captured.out
+
+
+def test_main_interactive_loop_returns_system_exit_code(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: "quit")
+
+    class FakeShell:
+        def run_command_line(self, command_line: str) -> str:
+            raise SystemExit(7)
+
+    monkeypatch.setattr(main_module, "SearchShell", lambda: FakeShell())
+
+    assert main([]) == 7

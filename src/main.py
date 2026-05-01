@@ -8,7 +8,7 @@ import shlex
 import sys
 
 from crawler import Crawler
-from indexer import Indexer
+from indexer import Indexer, InvertedIndex
 from search import DEFAULT_INDEX_PATH, SearchEngine
 
 
@@ -93,6 +93,12 @@ class SearchShell:
             self.engine = SearchEngine.load(self.index_path)
 
         return self.engine
+
+
+def build_index_with_defaults() -> InvertedIndex:
+    """Build an index using the default crawler and indexer."""
+    pages = Crawler().crawl()
+    return Indexer().build_index(pages)
 
 
 def main(argv: list[str] | None = None) -> int:

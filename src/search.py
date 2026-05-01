@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-from indexer import tokenise_text
+from indexer import InvertedIndex, PostingEntry, tokenise_text
 
 DEFAULT_INDEX_PATH = Path("data/index.json")
 
@@ -15,7 +15,7 @@ DEFAULT_INDEX_PATH = Path("data/index.json")
 class SearchEngine:
     """Provides search operations over a loaded inverted index."""
 
-    def __init__(self, index: dict | None = None) -> None:
+    def __init__(self, index: InvertedIndex | None = None) -> None:
         self.index = index or {}
 
     def save(self, path: str | Path = DEFAULT_INDEX_PATH) -> Path:
@@ -44,7 +44,7 @@ class SearchEngine:
 
         return cls(index=raw_index)
 
-    def print_word(self, word: str) -> dict:
+    def print_word(self, word: str) -> dict[str, PostingEntry]:
         """Return the inverted-index entry for one word."""
         tokens = tokenise_text(word)
         if len(tokens) != 1:

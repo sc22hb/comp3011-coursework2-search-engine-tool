@@ -97,6 +97,25 @@ def test_crawler_treats_page_one_as_the_root_page() -> None:
     ]
 
 
+def test_crawler_ignores_external_links() -> None:
+    pages = {
+        "https://quotes.toscrape.com/": """
+            <html>
+                <body>
+                    <a href="https://example.com/page/2/">External</a>
+                </body>
+            </html>
+        """
+    }
+
+    session = StubSession(lambda url: StubResponse(pages[url]))
+    crawler = Crawler(session=session, politeness_window=0)
+
+    crawled_pages = crawler.crawl()
+
+    assert [page.url for page in crawled_pages] == ["https://quotes.toscrape.com/"]
+
+
 def test_crawler_waits_for_politeness_window_between_requests() -> None:
     current_time = {"value": 0.0}
     sleep_calls: list[float] = []
