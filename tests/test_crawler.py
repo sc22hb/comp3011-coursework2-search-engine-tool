@@ -73,6 +73,30 @@ def test_crawler_collects_paginated_pages_without_duplicates() -> None:
     ]
 
 
+def test_crawler_treats_page_one_as_the_root_page() -> None:
+    pages = {
+        "https://quotes.toscrape.com/": """
+            <html>
+                <body>
+                    <a href="/page/1/">Page 1</a>
+                    <a href="/page/2/">Page 2</a>
+                </body>
+            </html>
+        """,
+        "https://quotes.toscrape.com/page/2/": "<html><body>Page 2</body></html>",
+    }
+
+    session = StubSession(lambda url: StubResponse(pages[url]))
+    crawler = Crawler(session=session, politeness_window=0)
+
+    crawled_pages = crawler.crawl()
+
+    assert [page.url for page in crawled_pages] == [
+        "https://quotes.toscrape.com/",
+        "https://quotes.toscrape.com/page/2/",
+    ]
+
+
 def test_crawler_waits_for_politeness_window_between_requests() -> None:
     current_time = {"value": 0.0}
     sleep_calls: list[float] = []

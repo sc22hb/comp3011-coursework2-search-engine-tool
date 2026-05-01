@@ -77,8 +77,13 @@ class SearchShell:
         if not arguments:
             raise ValueError("The find command requires at least one search term.")
 
-        results = self._require_engine().find(arguments)
+        engine = self._require_engine()
+        results = engine.find(arguments)
         if not results:
+            suggestion = engine.suggest_query(arguments)
+            if suggestion is not None:
+                return f"No matching pages found.\nDid you mean: {suggestion}?"
+
             return "No matching pages found."
 
         return "\n".join(results)

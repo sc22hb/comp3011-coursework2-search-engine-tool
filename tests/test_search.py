@@ -119,9 +119,59 @@ def test_search_engine_find_returns_intersection_ranked_by_frequency() -> None:
     ]
 
 
+def test_search_engine_find_supports_exact_phrase_queries() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 2,
+                    "positions": [0, 4],
+                },
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                },
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 1,
+                    "positions": [3],
+                },
+            },
+        }
+    )
+
+    assert engine.find(["good friends"]) == ["https://quotes.toscrape.com/"]
+
+
 def test_search_engine_find_returns_empty_for_empty_query() -> None:
     engine = SearchEngine({"good": {}})
     assert engine.find([]) == []
+
+
+def test_search_engine_suggests_close_query_terms() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                }
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                }
+            },
+        }
+    )
+
+    assert engine.suggest_query(["godo", "frends"]) == "good friends"
 
 
 class StubCrawler:
@@ -250,6 +300,31 @@ def test_search_shell_find_returns_matching_pages(tmp_path: Path) -> None:
     output = shell.run_command("find", ["good", "friends"])
 
     assert output == "https://quotes.toscrape.com/"
+
+
+def test_search_shell_find_returns_query_suggestion(tmp_path: Path) -> None:
+    path = tmp_path / "index.json"
+    SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 2,
+                    "positions": [0, 2],
+                }
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                }
+            },
+        }
+    ).save(path)
+    shell = SearchShell(index_path=path)
+
+    output = shell.run_command("find", ["godo", "frends"])
+
+    assert output == "No matching pages found.\nDid you mean: good friends?"
 
 
 def test_search_shell_find_requires_query_terms(tmp_path: Path) -> None:

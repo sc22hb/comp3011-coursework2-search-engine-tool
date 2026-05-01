@@ -123,6 +123,9 @@ class Crawler:
         parsed = urlparse(url)
         path = parsed.path or "/"
 
+        if path == "/page/1/":
+            path = "/"
+
         if path != "/" and not path.endswith("/"):
             path = f"{path}/"
 
