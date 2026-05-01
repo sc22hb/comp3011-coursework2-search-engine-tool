@@ -79,6 +79,7 @@ class Crawler:
         return pages
 
     def _fetch_page(self, url: str) -> str:
+        """Download a single page, respecting the politeness window."""
         self._respect_politeness_window()
         self._last_request_at = self.clock()
         response = self.session.get(url, timeout=30)
@@ -86,6 +87,7 @@ class Crawler:
         return response.text
 
     def _respect_politeness_window(self) -> None:
+        """Sleep until the minimum gap between requests has elapsed."""
         if self._last_request_at is None:
             return
 
@@ -94,6 +96,7 @@ class Crawler:
             self.sleep(self.politeness_window - elapsed)
 
     def _extract_page_links(self, soup: BeautifulSoup, current_url: str) -> list[str]:
+        """Return normalised in-scope links found on the page."""
         links: list[str] = []
 
         for anchor in soup.find_all("a", href=True):
@@ -104,10 +107,12 @@ class Crawler:
         return links
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
+        """Return the page title or fall back to the base URL."""
         title = soup.find("title")
         return title.get_text(strip=True) if title else self.base_url
 
     def _is_allowed_page(self, url: str) -> bool:
+        """Return True when *url* is a quote-listing page on the target site."""
         parsed_url = urlparse(url)
         parsed_base = urlparse(self.base_url)
 
@@ -120,6 +125,7 @@ class Crawler:
         return parsed_url.path == "/" or bool(QUOTE_PAGE_PATTERN.match(parsed_url.path))
 
     def _normalise_url(self, url: str) -> str:
+        """Canonicalise a URL by enforcing trailing slashes and collapsing /page/1/."""
         parsed = urlparse(url)
         path = parsed.path or "/"
 

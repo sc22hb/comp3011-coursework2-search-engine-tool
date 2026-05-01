@@ -50,12 +50,14 @@ class SearchShell:
         return self.run_command(parts[0], parts[1:])
 
     def _build_index(self) -> str:
+        """Crawl the target site, build the index, and persist it to disk."""
         pages = self.crawler.crawl()
         if not pages:
             raise RuntimeError("Build failed because no pages were crawled.")
 
         index = self.indexer.build_index(pages)
-        self.engine = SearchEngine(index)
+        page_texts = {page.url: page.text for page in pages}
+        self.engine = SearchEngine(index, page_texts=page_texts)
         output_path = self.engine.save(self.index_path)
         return (
             f"Built index for {len(pages)} pages with {len(index)} unique terms. "
@@ -63,10 +65,12 @@ class SearchShell:
         )
 
     def _load_index(self) -> str:
+        """Load a previously saved index from disk."""
         self.engine = SearchEngine.load(self.index_path)
         return f"Loaded index with {len(self.engine.index)} terms from {self.index_path}."
 
     def _print_word(self, arguments: list[str]) -> str:
+        """Return the JSON-formatted inverted-index entry for a single word."""
         if len(arguments) != 1:
             raise ValueError("The print command requires exactly one word.")
 
@@ -74,6 +78,7 @@ class SearchShell:
         return json.dumps(entry, indent=2, sort_keys=True)
 
     def _find_query(self, arguments: list[str]) -> str:
+        """Search the index for the given terms and return ranked results with snippets."""
         if not arguments:
             raise ValueError("The find command requires at least one search term.")
 
@@ -86,9 +91,17 @@ class SearchShell:
 
             return "No matching pages found."
 
-        return "\n".join(results)
+        lines: list[str] = []
+        for url in results:
+            lines.append(url)
+            excerpt = engine.snippet(url, arguments)
+            if excerpt:
+                lines.append(f"  {excerpt}")
+
+        return "\n".join(lines)
 
     def _require_engine(self) -> SearchEngine:
+        """Return the active engine, auto-loading from disk if needed."""
         if self.engine is None:
             self.engine = SearchEngine.load(self.index_path)
 

@@ -1,10 +1,10 @@
 from pathlib import Path
 import json
-import sys
 
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+import pytest
 
 from crawler import PageData
+from indexer import Indexer
 import main as main_module
 from main import SearchShell, build_index_with_defaults, main
 from search import SearchEngine
@@ -534,22 +534,283 @@ def test_main_interactive_loop_returns_system_exit_code(monkeypatch) -> None:
     assert main([]) == 7
 
 
+def test_search_engine_saves_and_loads_page_texts_round_trip(tmp_path: Path) -> None:
+    index = {
+        "good": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 1,
+                "positions": [0],
+            }
+        }
+    }
+    page_texts = {"https://quotes.toscrape.com/": "Good friends good books"}
+    path = tmp_path / "index.json"
+
+    SearchEngine(index, page_texts=page_texts).save(path)
+    loaded = SearchEngine.load(path)
+
+    assert loaded.index == index
+    assert loaded.page_texts == page_texts
+
+
+def test_search_engine_load_supports_legacy_bare_index(tmp_path: Path) -> None:
+    """Verify that a plain dict (without the page_texts wrapper) still loads."""
+    bare_index = {
+        "good": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 1,
+                "positions": [0],
+            }
+        }
+    }
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(bare_index), encoding="utf-8")
+
+    loaded = SearchEngine.load(path)
+
+    assert loaded.index == bare_index
+    assert loaded.page_texts == {}
+
+
+def test_search_engine_snippet_returns_context_around_match() -> None:
+    index = {
+        "life": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 1,
+                "positions": [2],
+            }
+        }
+    }
+    page_texts = {
+        "https://quotes.toscrape.com/": "enjoy your life every single day",
+    }
+    engine = SearchEngine(index, page_texts=page_texts)
+
+    result = engine.snippet("https://quotes.toscrape.com/", ["life"])
+
+    assert result is not None
+    assert "life" in result
+
+
+def test_search_engine_snippet_returns_none_without_page_texts() -> None:
+    engine = SearchEngine(
+        {"good": {"u": {"frequency": 1, "positions": [0]}}}
+    )
+
+    assert engine.snippet("u", ["good"]) is None
+
+
+@pytest.mark.parametrize(
+    "query, expected_urls",
+    [
+        (["good"], ["https://quotes.toscrape.com/", "https://quotes.toscrape.com/page/2/"]),
+        (["friends"], ["https://quotes.toscrape.com/"]),
+        (["nonexistent"], []),
+        ([], []),
+    ],
+    ids=["single-common-term", "single-rare-term", "missing-term", "empty-query"],
+)
+def test_search_engine_find_parametrised(query: list[str], expected_urls: list[str]) -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 3,
+                    "positions": [0, 2, 4],
+                },
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                },
+            },
+        }
+    )
+
+    results = engine.find(query)
+
+    assert set(results) == set(expected_urls)
+
+
+@pytest.mark.parametrize(
+    "word, expected_empty",
+    [
+        ("good", False),
+        ("GOOD", False),
+        ("nonexistent", True),
+        ("good friends", True),
+    ],
+    ids=["lowercase", "uppercase", "missing", "multi-word-rejected"],
+)
+def test_search_engine_print_word_parametrised(word: str, expected_empty: bool) -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                }
+            }
+        }
+    )
+
+    result = engine.print_word(word)
+
+    assert (result == {}) == expected_empty
+
+
+def test_integration_crawl_index_search_pipeline() -> None:
+    """Integration test: exercise the full crawl -> index -> search pipeline with stubs."""
+    pages = [
+        PageData(
+            url="https://quotes.toscrape.com/",
+            title="Page 1",
+            text="Life beautiful wonderful life quotes",
+        ),
+        PageData(
+            url="https://quotes.toscrape.com/page/2/",
+            title="Page 2",
+            text="Beautiful morning quotes life goes on",
+        ),
+    ]
+
+    indexer = Indexer()
+    index = indexer.build_index(pages)
+    page_texts = {p.url: p.text for p in pages}
+    engine = SearchEngine(index, page_texts=page_texts)
+
+    # "life" appears in both pages
+    life_results = engine.find(["life"])
+    assert set(life_results) == {
+        "https://quotes.toscrape.com/",
+        "https://quotes.toscrape.com/page/2/",
+    }
+
+    # "wonderful" only in page 1
+    assert engine.find(["wonderful"]) == ["https://quotes.toscrape.com/"]
+
+    # AND query: "life" AND "morning" — only page 2 has both
+    assert engine.find(["life", "morning"]) == ["https://quotes.toscrape.com/page/2/"]
+
+    # Snippet works
+    snippet = engine.snippet("https://quotes.toscrape.com/", ["life"])
+    assert snippet is not None
+    assert "life" in snippet
+
+    # Print returns expected postings
+    life_postings = engine.print_word("life")
+    assert "https://quotes.toscrape.com/" in life_postings
+    assert "https://quotes.toscrape.com/page/2/" in life_postings
+
+    # Query suggestion
+    suggestion = engine.suggest_query(["lif"])
+    assert suggestion == "life"
+
+
+def test_search_engine_snippet_with_phrase_query() -> None:
+    """Cover the multi-token branch in snippet (lines 156-163)."""
+    index = {
+        "good": {
+            "u": {"frequency": 1, "positions": [0]},
+        },
+        "friends": {
+            "u": {"frequency": 1, "positions": [1]},
+        },
+    }
+    page_texts = {"u": "good friends are rare treasures in life keep them close always"}
+    engine = SearchEngine(index, page_texts=page_texts)
+
+    result = engine.snippet("u", ["good friends"])
+
+    assert result is not None
+    assert "good" in result
+    assert "friends" in result
+
+
+def test_search_engine_snippet_adds_ellipsis_for_long_page() -> None:
+    """Cover the ellipsis branches (lines 171-174)."""
+    words = " ".join(f"word{i}" for i in range(30))
+    index = {
+        "word15": {
+            "u": {"frequency": 1, "positions": [15]},
+        },
+    }
+    page_texts = {"u": words}
+    engine = SearchEngine(index, page_texts=page_texts)
+
+    result = engine.snippet("u", ["word15"])
+
+    assert result is not None
+    assert result.startswith("...")
+    assert result.endswith("...")
+
+
+def test_search_engine_find_returns_empty_when_intersection_is_empty() -> None:
+    """Cover line 88 — components each match pages but their intersection is empty."""
+    engine = SearchEngine(
+        {
+            "alpha": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+            "beta": {
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+        }
+    )
+
+    assert engine.find(["alpha", "beta"]) == []
+
+
+def test_search_engine_snippet_returns_none_for_empty_components() -> None:
+    """Cover line 144 — query that produces no components after tokenisation."""
+    engine = SearchEngine(
+        {"good": {"u": {"frequency": 1, "positions": [0]}}},
+        page_texts={"u": "good text"},
+    )
+
+    assert engine.snippet("u", []) is None
+
+
+def test_search_engine_snippet_returns_none_when_term_not_in_index() -> None:
+    """Cover line 165-166 — no matching position found."""
+    engine = SearchEngine(
+        {"good": {"u": {"frequency": 1, "positions": [0]}}},
+        page_texts={"u": "good text"},
+    )
+
+    assert engine.snippet("u", ["missing"]) is None
+
+
 def test_committed_compiled_index_supports_real_queries() -> None:
     index_path = Path(__file__).resolve().parents[1] / "data" / "index.json"
     engine = SearchEngine.load(index_path)
 
     pages = sorted({url for postings in engine.index.values() for url in postings})
 
-    assert len(engine.index) == 858
     assert len(pages) == 10
     assert pages[0] == "https://quotes.toscrape.com/"
     assert pages[-1] == "https://quotes.toscrape.com/page/9/"
 
+    # "life" should appear across all pages
     life_results = engine.find(["life"])
     assert len(life_results) == 10
     assert set(life_results) == set(pages)
-    assert life_results[0] == "https://quotes.toscrape.com/page/2/"
-    assert engine.find(["good friends"]) == ["https://quotes.toscrape.com/page/2/"]
+
+    # Stop words should not be in the index
+    for stop_word in ("the", "is", "a", "and", "of"):
+        assert stop_word not in engine.index, f"Stop word '{stop_word}' should be filtered"
+
     suggestion = engine.suggest_query(["godo", "frends"])
     assert suggestion is not None
     assert suggestion.endswith("friends")

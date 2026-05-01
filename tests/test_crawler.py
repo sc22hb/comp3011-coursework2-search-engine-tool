@@ -1,8 +1,4 @@
-from pathlib import Path
-import sys
 from typing import Callable
-
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import requests
 
