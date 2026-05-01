@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from indexer import tokenise_text
 
 DEFAULT_INDEX_PATH = Path("data/index.json")
 
@@ -43,8 +44,37 @@ class SearchEngine:
 
     def print_word(self, word: str) -> dict:
         """Return the inverted-index entry for one word."""
-        raise NotImplementedError("Search implementation is not complete yet.")
+        tokens = tokenise_text(word)
+        if len(tokens) != 1:
+            return {}
+
+        return self.index.get(tokens[0], {})
 
     def find(self, query_terms: list[str]) -> list[str]:
         """Return pages containing the supplied query terms."""
-        raise NotImplementedError("Search implementation is not complete yet.")
+        normalised_terms: list[str] = []
+
+        for term in query_terms:
+            normalised_terms.extend(tokenise_text(term))
+
+        if not normalised_terms:
+            return []
+
+        unique_terms = list(dict.fromkeys(normalised_terms))
+        postings_by_term = [self.index.get(term, {}) for term in unique_terms]
+
+        if not postings_by_term or any(not postings for postings in postings_by_term):
+            return []
+
+        matching_urls = set(postings_by_term[0])
+        for postings in postings_by_term[1:]:
+            matching_urls &= set(postings)
+
+        ranked_urls = sorted(
+            matching_urls,
+            key=lambda url: (
+                -sum(postings[url]["frequency"] for postings in postings_by_term),
+                url,
+            ),
+        )
+        return ranked_urls
