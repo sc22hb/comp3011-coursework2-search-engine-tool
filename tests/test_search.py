@@ -168,6 +168,21 @@ def test_search_shell_build_saves_index_file(tmp_path: Path) -> None:
     assert (tmp_path / "index.json").exists()
 
 
+def test_search_shell_build_raises_when_no_pages_are_crawled(tmp_path: Path) -> None:
+    shell = SearchShell(
+        crawler=StubCrawler([]),
+        indexer=StubIndexer({}),
+        index_path=tmp_path / "index.json",
+    )
+
+    try:
+        shell.run_command("build", [])
+    except RuntimeError as error:
+        assert "no pages were crawled" in str(error)
+    else:
+        assert False, "Expected RuntimeError when build crawls no pages."
+
+
 def test_search_shell_load_reads_index_file(tmp_path: Path) -> None:
     path = tmp_path / "index.json"
     SearchEngine(

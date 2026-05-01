@@ -59,6 +59,8 @@ class Crawler:
             try:
                 html = self._fetch_page(url)
             except requests.RequestException:
+                if url == self.base_url:
+                    raise
                 continue
 
             soup = BeautifulSoup(html, "html.parser")

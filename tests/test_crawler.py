@@ -138,3 +138,17 @@ def test_crawler_skips_failed_requests_and_continues() -> None:
         "https://quotes.toscrape.com/",
         "https://quotes.toscrape.com/page/2/",
     ]
+
+
+def test_crawler_raises_if_initial_request_fails() -> None:
+    session = StubSession(
+        lambda url: (_ for _ in ()).throw(requests.RequestException("Root failure"))
+    )
+    crawler = Crawler(session=session, politeness_window=0)
+
+    try:
+        crawler.crawl()
+    except requests.RequestException as error:
+        assert "Root failure" in str(error)
+    else:
+        assert False, "Expected the crawler to raise when the initial request fails."

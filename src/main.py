@@ -51,6 +51,9 @@ class SearchShell:
 
     def _build_index(self) -> str:
         pages = self.crawler.crawl()
+        if not pages:
+            raise RuntimeError("Build failed because no pages were crawled.")
+
         index = self.indexer.build_index(pages)
         self.engine = SearchEngine(index)
         output_path = self.engine.save(self.index_path)
@@ -95,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     if args:
         try:
             output = shell.run_command(args[0], args[1:])
-        except (FileNotFoundError, SystemExit, ValueError) as error:
+        except (FileNotFoundError, RuntimeError, SystemExit, ValueError) as error:
             if isinstance(error, SystemExit):
                 return error.code
 
@@ -118,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             output = shell.run_command_line(command_line)
         except SystemExit as error:
             return error.code
-        except (FileNotFoundError, ValueError) as error:
+        except (FileNotFoundError, RuntimeError, ValueError) as error:
             print(str(error), file=sys.stderr)
             continue
 
