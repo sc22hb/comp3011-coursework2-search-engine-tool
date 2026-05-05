@@ -11,6 +11,9 @@ from crawler import Crawler
 from indexer import Indexer, InvertedIndex
 from search import DEFAULT_INDEX_PATH, SearchEngine
 
+INTERACTIVE_BANNER = "Search Engine Tool"
+INTERACTIVE_COMMANDS = "Commands: build | load | print <term> | find <query> | exit"
+
 
 class SearchShell:
     """Provides the coursework command shell operations."""
@@ -131,6 +134,9 @@ def main(argv: list[str] | None = None) -> int:
 
         print(output)
         return 0
+
+    print(INTERACTIVE_BANNER)
+    print(INTERACTIVE_COMMANDS)
 
     while True:
         try:

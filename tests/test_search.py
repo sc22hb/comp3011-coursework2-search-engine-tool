@@ -524,6 +524,17 @@ def test_main_returns_zero_on_immediate_eof(monkeypatch) -> None:
     assert main([]) == 0
 
 
+def test_main_interactive_loop_prints_banner(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(EOFError()))
+
+    result = main([])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Search Engine Tool" in captured.out
+    assert "Commands: build | load | print <term> | find <query> | exit" in captured.out
+
+
 def test_main_interactive_loop_continues_after_value_error(monkeypatch, capsys) -> None:
     commands = iter(["   ", "bad", "load"])
 
@@ -546,6 +557,7 @@ def test_main_interactive_loop_continues_after_value_error(monkeypatch, capsys) 
 
     captured = capsys.readouterr()
     assert result == 0
+    assert "Search Engine Tool" in captured.out
     assert "bad command" in captured.err
     assert "loaded" in captured.out
 
