@@ -69,6 +69,10 @@ class SearchEngine:
 
     def find(self, query_terms: list[str]) -> list[str]:
         """Return pages containing the supplied query terms."""
+        return [url for url, _score in self.ranked_results(query_terms)]
+
+    def ranked_results(self, query_terms: list[str]) -> list[tuple[str, float]]:
+        """Return matching pages paired with their relevance score."""
         components = self._parse_query_components(query_terms)
         if not components:
             return []
@@ -87,14 +91,12 @@ class SearchEngine:
         if not matching_urls:
             return []
 
+        scores = {url: self._query_score(components, url) for url in matching_urls}
         ranked_urls = sorted(
             matching_urls,
-            key=lambda url: (
-                -self._query_score(components, url),
-                url,
-            ),
+            key=lambda url: (-scores[url], url),
         )
-        return ranked_urls
+        return [(url, scores[url]) for url in ranked_urls]
 
     def suggest_query(self, query_terms: list[str]) -> str | None:
         """Return a suggested alternative query when terms are close to index terms."""

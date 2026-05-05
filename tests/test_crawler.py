@@ -112,6 +112,38 @@ def test_crawler_ignores_external_links() -> None:
     assert [page.url for page in crawled_pages] == ["https://quotes.toscrape.com/"]
 
 
+def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
+    pages = {
+        "https://quotes.toscrape.com/": """
+            <html>
+                <head><title>Quotes to Scrape</title></head>
+                <body>
+                    <nav>Login Home</nav>
+                    <div class="quote">
+                        <span class="text">"Good friends, good books."</span>
+                        <span>by <small class="author">Jane Austen</small></span>
+                        <div class="tags">
+                            <a class="tag" href="/tag/friends/">friends</a>
+                        </div>
+                    </div>
+                    <div class="col-md-4 tags-box">
+                        <span class="tag-item"><a class="tag">Top Ten Tags</a></span>
+                    </div>
+                    <footer>Made with ❤ by Someone</footer>
+                </body>
+            </html>
+        """,
+    }
+
+    session = StubSession(lambda url: StubResponse(pages[url]))
+    crawler = Crawler(session=session, politeness_window=0)
+
+    crawled_pages = crawler.crawl()
+
+    assert len(crawled_pages) == 1
+    assert crawled_pages[0].text == '"Good friends, good books." Jane Austen'
+
+
 def test_crawler_waits_for_politeness_window_between_requests() -> None:
     current_time = {"value": 0.0}
     sleep_calls: list[float] = []

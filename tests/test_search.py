@@ -120,6 +120,41 @@ def test_search_engine_find_returns_intersection_ranked_by_frequency() -> None:
     ]
 
 
+def test_search_engine_ranked_results_include_scores() -> None:
+    engine = SearchEngine(
+        {
+            "good": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 3,
+                    "positions": [0, 2, 4],
+                },
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 1,
+                    "positions": [0],
+                },
+            },
+            "friends": {
+                "https://quotes.toscrape.com/": {
+                    "frequency": 1,
+                    "positions": [1],
+                },
+                "https://quotes.toscrape.com/page/2/": {
+                    "frequency": 4,
+                    "positions": [1, 3, 5, 7],
+                },
+            },
+        }
+    )
+
+    results = engine.ranked_results(["good", "friends"])
+
+    assert [url for url, _score in results] == [
+        "https://quotes.toscrape.com/page/2/",
+        "https://quotes.toscrape.com/",
+    ]
+    assert results[0][1] > results[1][1]
+
+
 def test_search_engine_find_supports_exact_phrase_queries() -> None:
     engine = SearchEngine(
         {
@@ -373,7 +408,7 @@ def test_search_shell_find_returns_matching_pages(tmp_path: Path) -> None:
 
     output = shell.run_command("find", ["good", "friends"])
 
-    assert output == "https://quotes.toscrape.com/"
+    assert output.startswith("https://quotes.toscrape.com/  [score: ")
 
 
 def test_search_shell_find_returns_query_suggestion(tmp_path: Path) -> None:
@@ -869,10 +904,15 @@ def test_committed_compiled_index_supports_real_queries() -> None:
     assert pages[0] == "https://quotes.toscrape.com/"
     assert pages[-1] == "https://quotes.toscrape.com/page/9/"
 
-    # "life" should appear across all pages
-    life_results = engine.find(["life"])
-    assert len(life_results) == 10
-    assert set(life_results) == set(pages)
+    # The cleaned artifact should not be dominated by repeated layout text.
+    friends_results = engine.find(["friends"])
+    assert friends_results == [
+        "https://quotes.toscrape.com/page/2/",
+        "https://quotes.toscrape.com/page/6/",
+    ]
+
+    phrase_results = engine.find(["good friends"])
+    assert phrase_results == ["https://quotes.toscrape.com/page/2/"]
 
     # Common stop words remain searchable because the positional index is complete.
     for stop_word in ("the", "is", "a", "and", "of"):

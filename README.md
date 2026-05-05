@@ -12,6 +12,7 @@ The tool:
 - saves and loads the compiled index from disk
 - supports command-line search operations for printing one term and finding multi-word queries
 - ranks matches using TF-IDF scoring
+- displays ranking scores alongside search results
 - supports positional phrase search such as `find "good friends"`
 - displays context snippets alongside search results
 - suggests corrected query terms for close misspellings
@@ -20,6 +21,7 @@ The tool:
 
 - Polite breadth-first crawl of the target quote pages only
 - Canonical URL handling so the home page and `/page/1/` are not indexed twice
+- Focused text extraction that indexes quote text and author names while excluding repeated layout boilerplate
 - Case-insensitive tokenisation with apostrophe-aware word handling
 - Stop word de-emphasis at ranking time using a standard English stop list
 - Positional inverted index with per-page frequency and token positions
@@ -104,7 +106,7 @@ Then enter commands such as:
 - `print <word>`
   Prints the inverted-index entry for a single word.
 - `find <query terms>`
-  Returns pages containing all supplied search terms, ranked by TF-IDF-inspired scoring.
+  Returns pages containing all supplied search terms, ranked by TF-IDF-inspired scoring and shown with a relevance score.
 
 ## Example behaviour
 
@@ -141,6 +143,7 @@ If no exact match is found but a close query exists in the vocabulary, the shell
 Responsible for:
 - crawling the target website with breadth-first traversal
 - filtering links to the quote listing pages only
+- extracting quote text and author names while excluding repeated page boilerplate
 - enforcing the 6-second politeness window
 - returning canonical page data for indexing
 
@@ -161,6 +164,7 @@ Responsible for:
 - resolving AND queries for `find`
 - evaluating exact phrase matches through positional postings
 - ranking matches with TF-IDF scoring
+- exposing ranking scores for user-facing result output
 - generating context snippets centred on the first true match position
 - suggesting close query alternatives
 

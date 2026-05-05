@@ -86,8 +86,8 @@ class SearchShell:
             raise ValueError("The find command requires at least one search term.")
 
         engine = self._require_engine()
-        results = engine.find(arguments)
-        if not results:
+        ranked_results = engine.ranked_results(arguments)
+        if not ranked_results:
             suggestion = engine.suggest_query(arguments)
             if suggestion is not None:
                 return f"No matching pages found.\nDid you mean: {suggestion}?"
@@ -95,8 +95,8 @@ class SearchShell:
             return "No matching pages found."
 
         lines: list[str] = []
-        for url in results:
-            lines.append(url)
+        for url, score in ranked_results:
+            lines.append(f"{url}  [score: {score:.2f}]")
             excerpt = engine.snippet(url, arguments)
             if excerpt:
                 lines.append(f"  {excerpt}")

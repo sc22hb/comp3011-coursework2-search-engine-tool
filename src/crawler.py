@@ -68,7 +68,7 @@ class Crawler:
                 PageData(
                     url=url,
                     title=self._extract_title(soup),
-                    text=soup.get_text(" ", strip=True),
+                    text=self._extract_page_text(soup),
                 )
             )
 
@@ -110,6 +110,29 @@ class Crawler:
         """Return the page title or fall back to the base URL."""
         title = soup.find("title")
         return title.get_text(strip=True) if title else self.base_url
+
+    def _extract_page_text(self, soup: BeautifulSoup) -> str:
+        """Return indexable text while excluding repeated page boilerplate.
+
+        For quote listing pages, only the quote text and author names are
+        indexed. This avoids repeated navigation, footer, and sidebar text
+        dominating the index and search results.
+        """
+        quote_blocks = soup.select("div.quote")
+        if not quote_blocks:
+            return soup.get_text(" ", strip=True)
+
+        fragments: list[str] = []
+        for quote_block in quote_blocks:
+            quote_text = quote_block.select_one("span.text")
+            if quote_text is not None:
+                fragments.append(quote_text.get_text(" ", strip=True))
+
+            author = quote_block.select_one("small.author")
+            if author is not None:
+                fragments.append(author.get_text(" ", strip=True))
+
+        return " ".join(fragments)
 
     def _is_allowed_page(self, url: str) -> bool:
         """Return True when *url* is a quote-listing page on the target site."""
