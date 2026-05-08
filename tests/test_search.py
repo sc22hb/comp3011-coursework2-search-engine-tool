@@ -954,6 +954,16 @@ def test_committed_compiled_index_supports_real_queries() -> None:
         "https://quotes.toscrape.com/page/2/",
     ]
 
+    assert engine.find(["login"]) == []
+    assert engine.find(["quotes"]) == [
+        "https://quotes.toscrape.com/tag/novelist-quotes/page/1/",
+        "https://quotes.toscrape.com/page/6/",
+        "https://quotes.toscrape.com/tag/books/",
+        "https://quotes.toscrape.com/tag/books/page/1/",
+        "https://quotes.toscrape.com/tag/friends/",
+        "https://quotes.toscrape.com/tag/friends/page/1/",
+    ]
+
     # Common stop words remain searchable because the positional index is complete.
     for stop_word in ("the", "is", "a", "and", "of"):
         assert stop_word in engine.index

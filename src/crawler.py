@@ -45,7 +45,7 @@ class Crawler:
     def __init__(
         self,
         base_url: str = "https://quotes.toscrape.com/",
-        politeness_window: float = 0.0,
+        politeness_window: float = 6.0,
         session: requests.Session | None = None,
         clock: Callable[[], float] | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -129,7 +129,15 @@ class Crawler:
         """Return indexable page text while trimming repeated site boilerplate."""
         working_soup = BeautifulSoup(str(soup), "html.parser")
 
-        for selector in ("script", "style", "noscript", "nav", "footer", "div.col-md-4.tags-box"):
+        for selector in (
+            "script",
+            "style",
+            "noscript",
+            "nav",
+            "footer",
+            "div.col-md-4.tags-box",
+            "div.header-box",
+        ):
             for element in working_soup.select(selector):
                 element.decompose()
 

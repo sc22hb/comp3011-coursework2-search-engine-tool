@@ -30,6 +30,11 @@ def test_crawler_class_exists() -> None:
     assert isinstance(crawler, Crawler)
 
 
+def test_crawler_defaults_to_a_six_second_politeness_window() -> None:
+    crawler = Crawler()
+    assert crawler.politeness_window == 6.0
+
+
 def test_crawler_collects_same_domain_pages_without_duplicates() -> None:
     pages = {
         "https://quotes.toscrape.com/": """
@@ -137,11 +142,17 @@ def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
                 <head><title>Quotes to Scrape</title></head>
                 <body>
                     <nav>Login Home</nav>
-                    <div class="quote">
-                        <span class="text">"Good friends, good books."</span>
-                        <span>by <small class="author">Jane Austen</small></span>
-                        <div class="tags">
-                            <a class="tag" href="/tag/friends/">friends</a>
+                    <div class="container">
+                        <div class="row header-box">
+                            <h1>Quotes to Scrape</h1>
+                            <ul><li><a href="/login">Login</a></li></ul>
+                        </div>
+                        <div class="quote">
+                            <span class="text">"Good friends, good books."</span>
+                            <span>by <small class="author">Jane Austen</small></span>
+                            <div class="tags">
+                                <a class="tag" href="/tag/friends/">friends</a>
+                            </div>
                         </div>
                     </div>
                     <div class="col-md-4 tags-box">
@@ -159,6 +170,12 @@ def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
                 </body>
             </html>
         """,
+        "https://quotes.toscrape.com/login/": """
+            <html>
+                <head><title>Login</title></head>
+                <body><div class="container">Login page</div></body>
+            </html>
+        """,
     }
 
     session = StubSession(lambda url: StubResponse(pages[url]))
@@ -166,7 +183,7 @@ def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
 
     crawled_pages = crawler.crawl()
 
-    assert len(crawled_pages) == 2
+    assert len(crawled_pages) == 3
     assert crawled_pages[0].text == '"Good friends, good books." by Jane Austen friends'
 
 
@@ -185,12 +202,22 @@ def test_crawler_extracts_text_from_non_quote_pages() -> None:
                 <body>
                     <nav>Home Login</nav>
                     <div class="container">
+                        <div class="row header-box">
+                            <h1>Quotes to Scrape</h1>
+                            <ul><li><a href="/login">Login</a></li></ul>
+                        </div>
                         <h3 class="author-title">Albert Einstein</h3>
                         <span class="author-born-date">March 14, 1879</span>
                         <div class="author-description">Developed the theory of relativity.</div>
                     </div>
                     <footer>Made with love</footer>
                 </body>
+            </html>
+        """,
+        "https://quotes.toscrape.com/login/": """
+            <html>
+                <head><title>Login</title></head>
+                <body><div class="container">Login page</div></body>
             </html>
         """,
     }
