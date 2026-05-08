@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shlex
 import sys
+from typing import Callable
 
 from crawler import Crawler
 from indexer import Indexer, InvertedIndex
@@ -23,11 +24,17 @@ class SearchShell:
         crawler: Crawler | None = None,
         indexer: Indexer | None = None,
         index_path: str | Path = DEFAULT_INDEX_PATH,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> None:
         self.crawler = crawler or Crawler()
         self.indexer = indexer or Indexer()
         self.index_path = Path(index_path)
         self.engine: SearchEngine | None = None
+        self.progress_callback = progress_callback
+
+    def set_progress_callback(self, progress_callback: Callable[[str], None] | None) -> None:
+        """Configure an optional callback for live progress updates."""
+        self.progress_callback = progress_callback
 
     def run_command(self, command: str, arguments: list[str]) -> str:
         """Execute one command and return the user-facing output."""
@@ -54,13 +61,17 @@ class SearchShell:
 
     def _build_index(self) -> str:
         """Crawl the target site, build the index, and persist it to disk."""
+        target_url = getattr(self.crawler, "base_url", "the target site")
+        self._report_progress(f"Starting crawl of {target_url}...")
         pages = self.crawler.crawl()
         if not pages:
             raise RuntimeError("Build failed because no pages were crawled.")
 
+        self._report_progress(f"Crawled {len(pages)} pages. Building inverted index...")
         index = self.indexer.build_index(pages)
         page_texts = {page.url: page.text for page in pages}
         self.engine = SearchEngine(index, page_texts=page_texts)
+        self._report_progress(f"Built {len(index)} unique terms. Saving index to {self.index_path}...")
         output_path = self.engine.save(self.index_path)
         return (
             f"Built index for {len(pages)} pages with {len(index)} unique terms. "
@@ -110,6 +121,11 @@ class SearchShell:
 
         return self.engine
 
+    def _report_progress(self, message: str) -> None:
+        """Send a live progress update when a callback is configured."""
+        if self.progress_callback is not None:
+            self.progress_callback(message)
+
 
 def build_index_with_defaults() -> InvertedIndex:
     """Build an index using the default crawler and indexer."""
@@ -121,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     """Run the command-line interface."""
     args = list(sys.argv[1:] if argv is None else argv)
     shell = SearchShell()
+    if hasattr(shell, "set_progress_callback"):
+        shell.set_progress_callback(print)
 
     if args:
         try:

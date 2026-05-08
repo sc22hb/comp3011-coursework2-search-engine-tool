@@ -30,7 +30,7 @@ def test_crawler_class_exists() -> None:
     assert isinstance(crawler, Crawler)
 
 
-def test_crawler_collects_paginated_pages_without_duplicates() -> None:
+def test_crawler_collects_same_domain_pages_without_duplicates() -> None:
     pages = {
         "https://quotes.toscrape.com/": """
             <html>
@@ -38,7 +38,8 @@ def test_crawler_collects_paginated_pages_without_duplicates() -> None:
                 <body>
                     <a href="/page/2/">Next</a>
                     <a href="/page/2/">Duplicate</a>
-                    <a href="/author/albert-einstein">Ignored</a>
+                    <a href="/author/albert-einstein">Author</a>
+                    <a href="/tag/life/">Tag</a>
                     <div>First page text</div>
                 </body>
             </html>
@@ -52,6 +53,18 @@ def test_crawler_collects_paginated_pages_without_duplicates() -> None:
                 </body>
             </html>
         """,
+        "https://quotes.toscrape.com/author/albert-einstein/": """
+            <html>
+                <head><title>Albert Einstein</title></head>
+                <body><div class="author-details">Relativity</div></body>
+            </html>
+        """,
+        "https://quotes.toscrape.com/tag/life/": """
+            <html>
+                <head><title>Life Quotes</title></head>
+                <body><div>Life tag page</div></body>
+            </html>
+        """,
     }
 
     session = StubSession(lambda url: StubResponse(pages[url]))
@@ -62,10 +75,14 @@ def test_crawler_collects_paginated_pages_without_duplicates() -> None:
     assert [page.url for page in crawled_pages] == [
         "https://quotes.toscrape.com/",
         "https://quotes.toscrape.com/page/2/",
+        "https://quotes.toscrape.com/author/albert-einstein/",
+        "https://quotes.toscrape.com/tag/life/",
     ]
     assert session.requested_urls == [
         "https://quotes.toscrape.com/",
         "https://quotes.toscrape.com/page/2/",
+        "https://quotes.toscrape.com/author/albert-einstein/",
+        "https://quotes.toscrape.com/tag/life/",
     ]
 
 
@@ -75,11 +92,11 @@ def test_crawler_treats_page_one_as_the_root_page() -> None:
             <html>
                 <body>
                     <a href="/page/1/">Page 1</a>
-                    <a href="/page/2/">Page 2</a>
+                    <a href="/author/jane-austen/">Author</a>
                 </body>
             </html>
         """,
-        "https://quotes.toscrape.com/page/2/": "<html><body>Page 2</body></html>",
+        "https://quotes.toscrape.com/author/jane-austen/": "<html><body>Author</body></html>",
     }
 
     session = StubSession(lambda url: StubResponse(pages[url]))
@@ -89,7 +106,7 @@ def test_crawler_treats_page_one_as_the_root_page() -> None:
 
     assert [page.url for page in crawled_pages] == [
         "https://quotes.toscrape.com/",
-        "https://quotes.toscrape.com/page/2/",
+        "https://quotes.toscrape.com/author/jane-austen/",
     ]
 
 
@@ -99,6 +116,7 @@ def test_crawler_ignores_external_links() -> None:
             <html>
                 <body>
                     <a href="https://example.com/page/2/">External</a>
+                    <a href="/static/site.css">Stylesheet</a>
                 </body>
             </html>
         """
@@ -133,6 +151,14 @@ def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
                 </body>
             </html>
         """,
+        "https://quotes.toscrape.com/tag/friends/": """
+            <html>
+                <head><title>Friend Quotes</title></head>
+                <body>
+                    <div class="container">Quotes tagged friends</div>
+                </body>
+            </html>
+        """,
     }
 
     session = StubSession(lambda url: StubResponse(pages[url]))
@@ -140,8 +166,41 @@ def test_crawler_extracts_quote_text_without_layout_boilerplate() -> None:
 
     crawled_pages = crawler.crawl()
 
-    assert len(crawled_pages) == 1
-    assert crawled_pages[0].text == '"Good friends, good books." Jane Austen'
+    assert len(crawled_pages) == 2
+    assert crawled_pages[0].text == '"Good friends, good books." by Jane Austen friends'
+
+
+def test_crawler_extracts_text_from_non_quote_pages() -> None:
+    pages = {
+        "https://quotes.toscrape.com/": """
+            <html>
+                <body>
+                    <a href="/author/albert-einstein/">About Einstein</a>
+                </body>
+            </html>
+        """,
+        "https://quotes.toscrape.com/author/albert-einstein/": """
+            <html>
+                <head><title>Albert Einstein</title></head>
+                <body>
+                    <nav>Home Login</nav>
+                    <div class="container">
+                        <h3 class="author-title">Albert Einstein</h3>
+                        <span class="author-born-date">March 14, 1879</span>
+                        <div class="author-description">Developed the theory of relativity.</div>
+                    </div>
+                    <footer>Made with love</footer>
+                </body>
+            </html>
+        """,
+    }
+
+    session = StubSession(lambda url: StubResponse(pages[url]))
+    crawler = Crawler(session=session, politeness_window=0)
+
+    crawled_pages = crawler.crawl()
+
+    assert crawled_pages[1].text == "Albert Einstein March 14, 1879 Developed the theory of relativity."
 
 
 def test_crawler_waits_for_politeness_window_between_requests() -> None:
@@ -183,7 +242,7 @@ def test_crawler_waits_for_politeness_window_between_requests() -> None:
 
 def test_crawler_skips_failed_requests_and_continues() -> None:
     def handler(url: str) -> StubResponse:
-        if url == "https://quotes.toscrape.com/page/3/":
+        if url == "https://quotes.toscrape.com/tag/failure/":
             raise requests.RequestException("Temporary failure")
 
         if url == "https://quotes.toscrape.com/":
@@ -192,7 +251,7 @@ def test_crawler_skips_failed_requests_and_continues() -> None:
                 <html>
                     <body>
                         <a href="/page/2/">Page 2</a>
-                        <a href="/page/3/">Page 3</a>
+                        <a href="/tag/failure/">Tag</a>
                     </body>
                 </html>
                 """

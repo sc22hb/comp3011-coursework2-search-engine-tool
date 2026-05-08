@@ -19,9 +19,9 @@ The tool:
 
 ## Feature summary
 
-- Polite breadth-first crawl of the target quote pages only
+- Polite breadth-first crawl of all in-scope pages on the target site
 - Canonical URL handling so the home page and `/page/1/` are not indexed twice
-- Focused text extraction that indexes quote text and author names while excluding repeated layout boilerplate
+- Page-text extraction that works across quote, author, tag, and login pages while trimming repeated layout boilerplate
 - Case-insensitive tokenisation with apostrophe-aware word handling
 - Stop word de-emphasis at ranking time using a standard English stop list
 - Positional inverted index with per-page frequency and token positions
@@ -142,8 +142,8 @@ If no exact match is found but a close query exists in the vocabulary, the shell
 
 Responsible for:
 - crawling the target website with breadth-first traversal
-- filtering links to the quote listing pages only
-- extracting quote text and author names while excluding repeated page boilerplate
+- following all same-domain HTML pages while excluding obvious static assets
+- extracting page text across quote, author, tag, and login pages while excluding repeated page boilerplate
 - enforcing the 6-second politeness window
 - returning canonical page data for indexing
 

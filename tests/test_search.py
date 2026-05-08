@@ -327,6 +327,39 @@ def test_search_shell_build_saves_index_file(tmp_path: Path) -> None:
     assert (tmp_path / "index.json").exists()
 
 
+def test_search_shell_build_reports_progress_updates(tmp_path: Path) -> None:
+    pages = [
+        PageData(
+            url="https://quotes.toscrape.com/",
+            title="Page 1",
+            text="Good friends good books",
+        )
+    ]
+    index = {
+        "good": {
+            "https://quotes.toscrape.com/": {
+                "frequency": 2,
+                "positions": [0, 2],
+            }
+        }
+    }
+    progress_messages: list[str] = []
+    shell = SearchShell(
+        crawler=StubCrawler(pages),
+        indexer=StubIndexer(index),
+        index_path=tmp_path / "index.json",
+        progress_callback=progress_messages.append,
+    )
+
+    shell.run_command("build", [])
+
+    assert progress_messages == [
+        "Starting crawl of the target site...",
+        "Crawled 1 pages. Building inverted index...",
+        f"Built 1 unique terms. Saving index to {tmp_path / 'index.json'}...",
+    ]
+
+
 def test_search_shell_build_raises_when_no_pages_are_crawled(tmp_path: Path) -> None:
     shell = SearchShell(
         crawler=StubCrawler([]),
@@ -900,19 +933,26 @@ def test_committed_compiled_index_supports_real_queries() -> None:
 
     pages = sorted({url for postings in engine.index.values() for url in postings})
 
-    assert len(pages) == 10
+    assert len(pages) == 212
     assert pages[0] == "https://quotes.toscrape.com/"
-    assert pages[-1] == "https://quotes.toscrape.com/page/9/"
+    assert "https://quotes.toscrape.com/page/10/" in pages
+    assert "https://quotes.toscrape.com/author/Albert-Einstein/" in pages
+    assert "https://quotes.toscrape.com/tag/friends/" in pages
 
-    # The cleaned artifact should not be dominated by repeated layout text.
+    # The compiled artifact should support results from quote, tag, and author pages.
     friends_results = engine.find(["friends"])
-    assert friends_results == [
+    assert friends_results[:3] == [
+        "https://quotes.toscrape.com/tag/friends/",
+        "https://quotes.toscrape.com/tag/friends/page/1/",
         "https://quotes.toscrape.com/page/2/",
-        "https://quotes.toscrape.com/page/6/",
     ]
 
     phrase_results = engine.find(["good friends"])
-    assert phrase_results == ["https://quotes.toscrape.com/page/2/"]
+    assert phrase_results[:3] == [
+        "https://quotes.toscrape.com/tag/friends/",
+        "https://quotes.toscrape.com/tag/friends/page/1/",
+        "https://quotes.toscrape.com/page/2/",
+    ]
 
     # Common stop words remain searchable because the positional index is complete.
     for stop_word in ("the", "is", "a", "and", "of"):

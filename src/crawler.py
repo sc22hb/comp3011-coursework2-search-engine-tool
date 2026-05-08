@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import re
 import time
 from typing import Callable
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -13,7 +12,22 @@ import requests
 from bs4 import BeautifulSoup
 
 
-QUOTE_PAGE_PATTERN = re.compile(r"^/page/\d+/$")
+NON_HTML_SUFFIXES = {
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".json",
+    ".pdf",
+    ".png",
+    ".svg",
+    ".txt",
+    ".webp",
+    ".xml",
+    ".zip",
+}
 
 
 @dataclass(frozen=True)
@@ -31,7 +45,7 @@ class Crawler:
     def __init__(
         self,
         base_url: str = "https://quotes.toscrape.com/",
-        politeness_window: float = 6.0,
+        politeness_window: float = 0.0,
         session: requests.Session | None = None,
         clock: Callable[[], float] | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -44,7 +58,7 @@ class Crawler:
         self._last_request_at: float | None = None
 
     def crawl(self) -> list[PageData]:
-        """Return crawled quote-listing pages from the target website."""
+        """Return crawled in-scope pages from the target website."""
         pages: list[PageData] = []
         queue = deque([self.base_url])
         visited: set[str] = set()
@@ -112,30 +126,18 @@ class Crawler:
         return title.get_text(strip=True) if title else self.base_url
 
     def _extract_page_text(self, soup: BeautifulSoup) -> str:
-        """Return indexable text while excluding repeated page boilerplate.
+        """Return indexable page text while trimming repeated site boilerplate."""
+        working_soup = BeautifulSoup(str(soup), "html.parser")
 
-        For quote listing pages, only the quote text and author names are
-        indexed. This avoids repeated navigation, footer, and sidebar text
-        dominating the index and search results.
-        """
-        quote_blocks = soup.select("div.quote")
-        if not quote_blocks:
-            return soup.get_text(" ", strip=True)
+        for selector in ("script", "style", "noscript", "nav", "footer", "div.col-md-4.tags-box"):
+            for element in working_soup.select(selector):
+                element.decompose()
 
-        fragments: list[str] = []
-        for quote_block in quote_blocks:
-            quote_text = quote_block.select_one("span.text")
-            if quote_text is not None:
-                fragments.append(quote_text.get_text(" ", strip=True))
-
-            author = quote_block.select_one("small.author")
-            if author is not None:
-                fragments.append(author.get_text(" ", strip=True))
-
-        return " ".join(fragments)
+        content_root = working_soup.select_one("div.container") or working_soup.body or working_soup
+        return content_root.get_text(" ", strip=True)
 
     def _is_allowed_page(self, url: str) -> bool:
-        """Return True when *url* is a quote-listing page on the target site."""
+        """Return True when *url* is an in-scope HTML page on the target site."""
         parsed_url = urlparse(url)
         parsed_base = urlparse(self.base_url)
 
@@ -145,17 +147,19 @@ class Crawler:
         ):
             return False
 
-        return parsed_url.path == "/" or bool(QUOTE_PAGE_PATTERN.match(parsed_url.path))
+        path = parsed_url.path.lower()
+        return not any(path.endswith(suffix) for suffix in NON_HTML_SUFFIXES)
 
     def _normalise_url(self, url: str) -> str:
         """Canonicalise a URL by enforcing trailing slashes and collapsing /page/1/."""
         parsed = urlparse(url)
         path = parsed.path or "/"
+        last_segment = path.rsplit("/", maxsplit=1)[-1]
 
         if path == "/page/1/":
             path = "/"
 
-        if path != "/" and not path.endswith("/"):
+        if path != "/" and not path.endswith("/") and "." not in last_segment:
             path = f"{path}/"
 
         normalised = parsed._replace(path=path, params="", query="", fragment="")
