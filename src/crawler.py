@@ -129,7 +129,15 @@ class Crawler:
         """Return indexable page text while trimming repeated site boilerplate."""
         working_soup = BeautifulSoup(str(soup), "html.parser")
 
-        for selector in ("script", "style", "noscript", "nav", "footer", "div.col-md-4.tags-box"):
+        for selector in (
+            "script",
+            "style",
+            "noscript",
+            "nav",
+            "footer",
+            "div.col-md-4.tags-box",
+            "div.header-box",
+        ):
             for element in working_soup.select(selector):
                 element.decompose()
 
